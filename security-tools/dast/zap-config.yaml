@@ -1,0 +1,51 @@
+# OWASP ZAP Configuration
+# https://www.zaproxy.org/docs/
+
+# Baseline scan settings
+baseline:
+  target: http://localhost:8080
+  duration: 5  # minutes
+  alert_threshold: WARN
+  
+# Full scan settings
+full:
+  target: http://localhost:8080
+  duration: 30  # minutes
+  max_depth: 5
+  spider: true
+  ajax_spider: true
+  
+# API scan settings
+api:
+  target: http://localhost:8080/api
+  openapi_spec: docs/openapi.yaml  # if available
+  format: openapi
+  
+# Rules configuration
+rules:
+  - id: 10026  # Cross Site Scripting (XSS)
+    threshold: LOW
+  - id: 40012  # SQL Injection
+    threshold: LOW
+  - id: 40014  # Cross Site Request Forgery
+    threshold: MEDIUM
+  - id: 40018  # Command Injection
+    threshold: LOW
+
+# Authentication (if needed)
+# authentication:
+#   type: form
+#   login_url: http://localhost:8080/login
+#   username: admin
+#   password: admin123
+#   username_field: username
+#   password_field: password
+
+# Context exclusions
+exclude:
+  - ".*\\.css$"
+  - ".*\\.js$"
+  - ".*\\.png$"
+  - ".*\\.jpg$"
+  - ".*\\.gif$"
+  - ".*/logout$"

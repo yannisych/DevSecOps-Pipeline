@@ -1,0 +1,266 @@
+{
+  "version": "1.0",
+  "description": "Security policy for DevSecOps pipeline",
+  
+  "quality_gates": {
+    "critical_vulnerabilities": {
+      "max_count": 0,
+      "action": "block",
+      "description": "Block deployment on any critical vulnerability"
+    },
+    "high_vulnerabilities": {
+      "max_count": 3,
+      "action": "warn",
+      "description": "Warn when more than 3 high vulnerabilities detected"
+    },
+    "medium_vulnerabilities": {
+      "max_count": 10,
+      "action": "log",
+      "description": "Log medium severity issues"
+    },
+    "low_vulnerabilities": {
+      "max_count": 50,
+      "action": "log"
+    },
+    "cvss_threshold": 7.0,
+    "cvss_description": "Block vulnerabilities with CVSS score >= 7.0",
+    "code_coverage_min": 80.0,
+    "code_coverage_description": "Minimum code coverage percentage",
+    "technical_debt_max": "5d",
+    "technical_debt_description": "Maximum allowed technical debt in days",
+    "code_duplication_max": 3.0,
+    "code_duplication_description": "Maximum code duplication percentage",
+    "security_hotspots_max": 5,
+    "security_hotspots_description": "Maximum security hotspots allowed"
+  },
+
+  "secrets_detection": {
+    "fail_on_secrets": true,
+    "fail_description": "Fail pipeline if secrets are detected",
+    "allowed_patterns": [
+      ".*_EXAMPLE_.*",
+      ".*_TEMPLATE_.*",
+      ".*_TEST_.*",
+      "DUMMY_.*",
+      "FAKE_.*"
+    ],
+    "allowed_patterns_description": "Patterns that are allowed (test data)",
+    "custom_patterns": [
+      {
+        "name": "AWS Access Key",
+        "pattern": "AKIA[0-9A-Z]{16}",
+        "severity": "critical"
+      },
+      {
+        "name": "GitHub Personal Access Token",
+        "pattern": "ghp_[a-zA-Z0-9]{36}",
+        "severity": "critical"
+      },
+      {
+        "name": "GitHub OAuth Token",
+        "pattern": "gho_[a-zA-Z0-9]{36}",
+        "severity": "critical"
+      },
+      {
+        "name": "Private Key",
+        "pattern": "-----BEGIN (RSA|DSA|EC|OPENSSH) PRIVATE KEY-----",
+        "severity": "critical"
+      },
+      {
+        "name": "Generic API Key",
+        "pattern": "api[_-]?key['\"]?\\s*[:=]\\s*['\"]?[a-zA-Z0-9]{32,}",
+        "severity": "high"
+      }
+    ]
+  },
+
+  "container_security": {
+    "block_high_risk_images": true,
+    "max_critical_vulns": 0,
+    "max_high_vulns": 5,
+    "required_checks": [
+      "no_root_user",
+      "health_check_defined",
+      "minimal_layers",
+      "signed_image"
+    ],
+    "allowed_base_images": [
+      "alpine:latest",
+      "python:3.11-slim",
+      "python:3.11-alpine",
+      "node:18-alpine",
+      "golang:1.21-alpine",
+      "nginx:alpine",
+      "redis:alpine"
+    ],
+    "blocked_base_images": [
+      "ubuntu:latest",
+      "centos:latest"
+    ]
+  },
+
+  "kubernetes_security": {
+    "enforce_pod_security_standards": true,
+    "required_security_context": {
+      "runAsNonRoot": true,
+      "readOnlyRootFilesystem": true,
+      "allowPrivilegeEscalation": false
+    },
+    "required_resource_limits": true,
+    "required_liveness_probe": true,
+    "required_readiness_probe": true
+  },
+
+  "compliance": {
+    "required_standards": [
+      "OWASP_TOP_10",
+      "CIS",
+      "PCI-DSS"
+    ],
+    "fail_on_non_compliance": false,
+    "generate_reports": true,
+    "report_formats": [
+      "json",
+      "html",
+      "pdf"
+    ]
+  },
+
+  "auto_remediation": {
+    "enabled": true,
+    "auto_merge": false,
+    "auto_merge_description": "Automatically merge remediation PRs (use with caution)",
+    "max_fixes_per_pr": 5,
+    "max_fixes_description": "Maximum number of fixes in a single PR",
+    "allowed_fix_types": [
+      "dependency_update",
+      "security_header",
+      "dockerfile_user",
+      "code_linting",
+      "weak_crypto_replacement"
+    ],
+    "require_approval": true,
+    "assignees": [],
+    "reviewers": [],
+    "labels": [
+      "security",
+      "automated-fix",
+      "auto-remediation"
+    ]
+  },
+
+  "notifications": {
+    "channels": {
+      "slack": {
+        "enabled": true,
+        "on_failure": true,
+        "on_success": false,
+        "on_warning": true,
+        "notify_on_new_vulnerabilities": true
+      },
+      "microsoft_teams": {
+        "enabled": true,
+        "on_failure": true,
+        "on_success": false,
+        "on_warning": true
+      },
+      "email": {
+        "enabled": true,
+        "on_failure": true,
+        "on_success": false,
+        "digest_mode": true,
+        "digest_frequency": "daily"
+      },
+      "github_issues": {
+        "enabled": true,
+        "on_failure": true,
+        "auto_assign": true,
+        "labels": [
+          "security",
+          "urgent",
+          "automated"
+        ]
+      }
+    },
+    "severity_thresholds": {
+      "always_notify": ["CRITICAL"],
+      "business_hours_only": ["HIGH"],
+      "digest_only": ["MEDIUM", "LOW"]
+    }
+  },
+
+  "scan_scheduling": {
+    "daily_scan": true,
+    "daily_scan_time": "02:00",
+    "weekly_full_scan": true,
+    "weekly_scan_day": "sunday",
+    "scan_on_pr": true,
+    "scan_on_push": true
+  },
+
+  "exclusions": {
+    "files": [
+      "**/*test*.py",
+      "**/*_test.py",
+      "**/test_*.py",
+      "**/node_modules/**",
+      "**/.venv/**",
+      "**/venv/**",
+      "**/dist/**",
+      "**/build/**",
+      "**/__pycache__/**",
+      "**/.*cache/**"
+    ],
+    "directories": [
+      "node_modules",
+      ".venv",
+      "venv",
+      "dist",
+      "build",
+      "__pycache__",
+      ".git"
+    ],
+    "cves": [],
+    "cves_description": "List of CVE IDs to exclude (use sparingly and with justification)"
+  },
+
+  "reporting": {
+    "retention_days": 90,
+    "archive_old_reports": true,
+    "generate_trends": true,
+    "trend_period_days": 30,
+    "export_formats": [
+      "json",
+      "html",
+      "pdf",
+      "sarif"
+    ]
+  },
+
+  "integrations": {
+    "defectdojo": {
+      "enabled": false,
+      "url": "",
+      "product_id": null
+    },
+    "jira": {
+      "enabled": false,
+      "url": "",
+      "project_key": ""
+    },
+    "servicenow": {
+      "enabled": false,
+      "instance": ""
+    }
+  },
+
+  "advanced": {
+    "parallel_scans": true,
+    "max_parallel_jobs": 10,
+    "timeout_minutes": 60,
+    "retry_failed_scans": true,
+    "max_retries": 2,
+    "cache_scan_results": true,
+    "cache_duration_hours": 24
+  }
+}

@@ -1,0 +1,85 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+*.log
+*.pot
+instance/
+.webassets-cache
+.scrapy
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+.pytest_cache/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Security reports (generated)
+reports/
+*.json
+*.html
+*.sarif
+*.xml
+!security-policy.json
+!docker-compose.yml
+!dependency-check-config.xml
+
+# Secrets (never commit!)
+.env
+.env.local
+*.pem
+*.key
+credentials.json
+secrets.yaml
+
+# Docker
+*.tar
+*.tar.gz
+
+# OS
+Thumbs.db
+desktop.ini
+:Zone.Identifier
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+*.swp
+CLAUDE.MD

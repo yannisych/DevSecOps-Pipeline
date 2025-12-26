@@ -1,0 +1,34 @@
+# Kubesec Policy Configuration
+# https://kubesec.io/
+
+# Security checks for Kubernetes manifests
+checks:
+  # Container security
+  - runAsNonRoot
+  - readOnlyRootFilesystem
+  - allowPrivilegeEscalation: false
+  - capabilities:
+      drop: ["ALL"]
+  
+  # Resource limits
+  - resources.limits.cpu
+  - resources.limits.memory
+  - resources.requests.cpu
+  - resources.requests.memory
+  
+  # Security context
+  - securityContext.runAsUser
+  - securityContext.fsGroup
+  
+  # Network policies
+  - networkPolicy
+  
+  # Service account
+  - automountServiceAccountToken: false
+
+# Scoring thresholds
+thresholds:
+  critical: -30
+  high: 0
+  medium: 5
+  low: 10

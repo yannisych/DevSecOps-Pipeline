@@ -1,0 +1,550 @@
+name: 🔐 Security Pipeline
+
+on:
+  push:
+    branches: [main, develop, staging]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      scan_type:
+        description: 'Type of scan to run'
+        required: true
+        default: 'full'
+        type: choice
+        options:
+          - full
+          - quick
+          - sast-only
+          - dast-only
+          - container-only
+
+env:
+  PYTHON_VERSION: '3.11'
+  NODE_VERSION: '18'
+  GO_VERSION: '1.21'
+  SONAR_ORGANIZATION: 'your-org'  # TODO: Update with your SonarCloud organization
+  SONAR_PROJECT_KEY: 'your-project-key'  # TODO: Update with your project key
+
+jobs:
+  # ====================
+  # Job 1: Setup & Configuration
+  # ====================
+  setup:
+    name: 🔧 Setup
+    runs-on: ubuntu-latest
+    outputs:
+      should_run_sast: ${{ steps.config.outputs.run_sast }}
+      should_run_dast: ${{ steps.config.outputs.run_dast }}
+      should_run_container: ${{ steps.config.outputs.run_container }}
+      project_language: ${{ steps.detect.outputs.language }}
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for secrets scanning
+      
+      - name: 🔍 Detect project language
+        id: detect
+        run: |
+          if [ -f "package.json" ]; then
+            echo "language=javascript" >> $GITHUB_OUTPUT
+          elif [ -f "requirements.txt" ] || [ -f "setup.py" ]; then
+            echo "language=python" >> $GITHUB_OUTPUT
+          elif [ -f "go.mod" ]; then
+            echo "language=go" >> $GITHUB_OUTPUT
+          elif [ -f "Gemfile" ]; then
+            echo "language=ruby" >> $GITHUB_OUTPUT
+          elif [ -f "pom.xml" ] || [ -f "build.gradle" ]; then
+            echo "language=java" >> $GITHUB_OUTPUT
+          else
+            echo "language=unknown" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: ⚙️ Configure scan scope
+        id: config
+        run: |
+          SCAN_TYPE="${{ github.event.inputs.scan_type || 'full' }}"
+          if [ "$SCAN_TYPE" == "full" ] || [ "$SCAN_TYPE" == "sast-only" ]; then
+            echo "run_sast=true" >> $GITHUB_OUTPUT
+          else
+            echo "run_sast=false" >> $GITHUB_OUTPUT
+          fi
+          
+          if [ "$SCAN_TYPE" == "full" ] || [ "$SCAN_TYPE" == "dast-only" ]; then
+            echo "run_dast=true" >> $GITHUB_OUTPUT
+          else
+            echo "run_dast=false" >> $GITHUB_OUTPUT
+          fi
+          
+          if [ "$SCAN_TYPE" == "full" ] || [ "$SCAN_TYPE" == "container-only" ]; then
+            echo "run_container=true" >> $GITHUB_OUTPUT
+          else
+            echo "run_container=false" >> $GITHUB_OUTPUT
+          fi
+
+  # ====================
+  # Job 2: SAST - Static Analysis
+  # ====================
+  sast-scan:
+    name: 🔍 SAST
+    runs-on: ubuntu-latest
+    needs: setup
+    if: needs.setup.outputs.should_run_sast == 'true'
+    strategy:
+      matrix:
+        tool: [sonarcloud, semgrep]
+      fail-fast: false
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: 🔎 SonarCloud Scan
+        if: matrix.tool == 'sonarcloud'
+        uses: SonarSource/sonarcloud-github-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >
+            -Dsonar.organization=${{ env.SONAR_ORGANIZATION }}
+            -Dsonar.projectKey=${{ env.SONAR_PROJECT_KEY }}
+            -Dsonar.sources=.
+            -Dsonar.qualitygate.wait=true
+      
+      - name: 🎯 Semgrep Scan
+        if: matrix.tool == 'semgrep'
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: >-
+            p/security-audit
+            p/owasp-top-ten
+            p/ci
+          generateSarif: true
+      
+      - name: 📤 Upload SAST results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sast-results-${{ matrix.tool }}
+          path: |
+            *.sarif
+            sonar-report.json
+          retention-days: 30
+
+  # ====================
+  # Job 3: SCA - Dependency Scanning
+  # ====================
+  sca-scan:
+    name: 📦 SCA
+    runs-on: ubuntu-latest
+    needs: setup
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+      
+      - name: 🔍 OWASP Dependency-Check
+        uses: dependency-check/Dependency-Check_Action@main
+        with:
+          project: 'devsecops-pipeline'
+          path: '.'
+          format: 'ALL'
+          args: >
+            --enableRetired
+            --enableExperimental
+      
+      - name: 📤 Upload SCA results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sca-results
+          path: dependency-check-report.*
+          retention-days: 30
+
+  # ====================
+  # Job 4: Container Security
+  # ====================
+  container-scan:
+    name: 🐳 Container
+    runs-on: ubuntu-latest
+    needs: setup
+    if: needs.setup.outputs.should_run_container == 'true'
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+      
+      - name: 🏗️ Build Docker image
+        run: |
+          REPO_NAME=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          if [ -f "Dockerfile" ]; then
+            docker build -t ${REPO_NAME}:${{ github.sha }} .
+          elif [ -f "sample-app/Dockerfile" ]; then
+            docker build -t ${REPO_NAME}:${{ github.sha }} ./sample-app
+          fi
+      
+      - name: 🔍 Trivy Scan
+        run: |
+          REPO_NAME=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v $(pwd):/workspace \
+            aquasec/trivy:latest image \
+            --format json \
+            --output /workspace/trivy-results.json \
+            --severity CRITICAL,HIGH,MEDIUM \
+            --exit-code 1 \
+            ${REPO_NAME}:${{ github.sha }}
+      
+      - name: 📤 Upload container scan results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: container-scan-results
+          path: trivy-results.json
+          retention-days: 30
+
+  # ====================
+  # Job 5: Secrets Detection
+  # ====================
+  secrets-scan:
+    name: 🔑 Secrets
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: 🔍 TruffleHog
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+      
+      - name: 🔐 Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ====================
+  # Job 6: DAST with OWASP ZAP
+  # ====================
+  dast-scan:
+    name: 🌐 DAST
+    runs-on: ubuntu-latest
+    needs: [setup, container-scan]
+    if: |
+      always() &&
+      needs.setup.outputs.should_run_dast == 'true'
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: 📦 Install application dependencies
+        run: |
+          pip install -r sample-app/requirements.txt
+
+      - name: 🚀 Start vulnerable application
+        run: |
+          cd sample-app
+          python app.py &
+          echo $! > /tmp/flask_app.pid
+          sleep 5
+
+      - name: ✅ Verify application is running
+        run: |
+          curl -f http://localhost:8080/ || exit 1
+
+      - name: 🕷️ OWASP ZAP Baseline Scan
+        uses: zaproxy/action-baseline@v0.10.0
+        with:
+          target: 'http://localhost:8080'
+          cmd_options: '-a'
+
+      - name: 🛑 Stop application
+        if: always()
+        run: |
+          if [ -f /tmp/flask_app.pid ]; then
+            kill $(cat /tmp/flask_app.pid) || true
+          fi
+
+      - name: 📤 Upload DAST results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dast-results
+          path: zap-baseline-report.html
+          retention-days: 30
+
+  # ====================
+  # Job 7: SBOM Generation
+  # ====================
+  sbom-generation:
+    name: 📋 SBOM
+    runs-on: ubuntu-latest
+    needs: container-scan
+    if: always()
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+      
+      - name: 📦 Generate SBOM with Syft
+        run: |
+          REPO_NAME=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v $(pwd):/workspace \
+            anchore/syft:latest \
+            ${REPO_NAME}:${{ github.sha }} \
+            -o cyclonedx-json=/workspace/sbom-cyclonedx.json
+      
+      - name: 📤 Upload SBOM
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sbom-results
+          path: sbom-cyclonedx.json
+          retention-days: 90
+
+  # ====================
+  # Job 8: Report Aggregation
+  # ====================
+  aggregate-reports:
+    name: 📊 Aggregate
+    runs-on: ubuntu-latest
+    needs: [sast-scan, sca-scan, container-scan, secrets-scan, dast-scan, sbom-generation]
+    if: always()
+    continue-on-error: true
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+      
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: 📦 Install dependencies
+        run: |
+          pip install -r scripts/requirements.txt
+      
+      - name: 📥 Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: all-reports/
+      
+      - name: 📊 Aggregate reports
+        run: |
+          python scripts/aggregate-reports.py \
+            --input-dir all-reports/ \
+            --output-dir reports/
+      
+      - name: 🎨 Generate dashboard
+        run: |
+          python scripts/generate-dashboard.py \
+            --report reports/consolidated-report.json \
+            --output reports/security-dashboard.html
+      
+      - name: 📋 Generate compliance reports
+        run: |
+          python scripts/compliance-reporter.py \
+            --report reports/consolidated-report.json \
+            --standards OWASP,PCI-DSS,CIS,NIST \
+            --output-dir reports/compliance/
+      
+      - name: 📤 Upload final reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-reports
+          path: |
+            reports/security-dashboard.html
+            reports/consolidated-report.json
+            reports/compliance/
+          retention-days: 90
+      
+      - name: 💬 Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = JSON.parse(fs.readFileSync('reports/consolidated-report.json', 'utf8'));
+            
+            const comment = `## 🔐 Security Scan Results
+            
+            | Severity | Count |
+            |----------|-------|
+            | 🔴 Critical | ${report.summary.critical} |
+            | 🟠 High | ${report.summary.high} |
+            | 🟡 Medium | ${report.summary.medium} |
+            | 🟢 Low | ${report.summary.low} |
+            
+            **Security Score:** ${report.security_score}/100
+            
+            [View Full Dashboard](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            `;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+
+  # ====================
+  # Job 9: Quality Gate Enforcement
+  # ====================
+  quality-gate:
+    name: 🚨 Quality Gate
+    runs-on: ubuntu-latest
+    needs: aggregate-reports
+    if: always()
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: 📥 Download consolidated report
+        uses: actions/download-artifact@v4
+        with:
+          name: security-reports
+          path: reports/
+
+      - name: 🔍 Enforce security thresholds
+        run: |
+          python3 << 'PYTHON_SCRIPT'
+          import json
+          import sys
+
+          # Load consolidated report
+          try:
+              with open('reports/consolidated-report.json', 'r') as f:
+                  report = json.load(f)
+          except FileNotFoundError:
+              print("❌ Consolidated report not found!")
+              sys.exit(1)
+
+          # Define quality gate thresholds
+          CRITICAL_THRESHOLD = 0  # No critical vulnerabilities allowed
+          HIGH_THRESHOLD = 5       # Max 5 high vulnerabilities
+          MIN_SECURITY_SCORE = 50  # Minimum security score
+
+          # Extract metrics
+          critical = report.get('summary', {}).get('critical', 0)
+          high = report.get('summary', {}).get('high', 0)
+          security_score = report.get('security_score', 0)
+
+          # Check thresholds
+          failures = []
+
+          if critical > CRITICAL_THRESHOLD:
+              failures.append(f"❌ Critical vulnerabilities: {critical} (threshold: {CRITICAL_THRESHOLD})")
+
+          if high > HIGH_THRESHOLD:
+              failures.append(f"❌ High vulnerabilities: {high} (threshold: {HIGH_THRESHOLD})")
+
+          if security_score < MIN_SECURITY_SCORE:
+              failures.append(f"❌ Security score: {security_score} (minimum: {MIN_SECURITY_SCORE})")
+
+          # Print results
+          print("\n" + "="*60)
+          print("🚨 QUALITY GATE ENFORCEMENT")
+          print("="*60)
+          print(f"Critical Vulnerabilities: {critical} (max: {CRITICAL_THRESHOLD})")
+          print(f"High Vulnerabilities: {high} (max: {HIGH_THRESHOLD})")
+          print(f"Security Score: {security_score} (min: {MIN_SECURITY_SCORE})")
+          print("="*60)
+
+          if failures:
+              print("\n⛔ QUALITY GATE FAILED:")
+              for failure in failures:
+                  print(f"  {failure}")
+              print("\n🚫 Deployment blocked due to security policy violations!")
+              print("="*60)
+              sys.exit(1)
+          else:
+              print("\n✅ QUALITY GATE PASSED")
+              print("All security thresholds met. Deployment approved.")
+              print("="*60)
+              sys.exit(0)
+          PYTHON_SCRIPT
+
+  # ====================
+  # Job 10: Notifications
+  # ====================
+  notifications:
+    name: 🔔 Notify
+    runs-on: ubuntu-latest
+    needs: aggregate-reports
+    if: always()
+    continue-on-error: true
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+      
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: 📦 Install dependencies
+        run: pip install -r scripts/requirements.txt
+      
+      - name: 📥 Download reports
+        uses: actions/download-artifact@v4
+        with:
+          name: security-reports
+          path: reports/
+      
+      - name: 📢 Send notifications
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+          TEAMS_WEBHOOK: ${{ secrets.TEAMS_WEBHOOK }}
+          SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          python scripts/notifications.py \
+            --report reports/consolidated-report.json \
+            --type all
+
+# ====================
+# Pipeline Summary
+# ====================
+# Total execution time: ~5-7 minutes
+# Total jobs: 10
+#
+# Features:
+# - Multi-language SAST (SonarCloud, Semgrep)
+# - Comprehensive SCA (OWASP Dependency-Check)
+# - Container security (Trivy with exit-code enforcement)
+# - Secrets detection (TruffleHog, Gitleaks)
+# - DAST with OWASP ZAP (against running application)
+# - SBOM generation (Syft)
+# - Security quality gate enforcement (blocks deployment)
+# - Interactive dashboard
+# - Compliance reporting (OWASP, PCI-DSS, CIS, NIST)
+# - Multi-channel notifications
+#
+# Security Gates:
+# - No critical vulnerabilities allowed
+# - Maximum 5 high severity vulnerabilities
+# - Minimum security score of 50/100
+# - Pipeline fails if thresholds are breached
+# ====================

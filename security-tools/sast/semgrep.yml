@@ -1,0 +1,33 @@
+# Semgrep Configuration
+# https://semgrep.dev/docs/writing-rules/rule-syntax/
+
+rules:
+  - p/security-audit
+  - p/owasp-top-ten
+  - p/ci
+  - p/python
+  - p/javascript
+  - p/go
+  - p/java
+  - p/ruby
+
+# Custom exclusions
+paths:
+  exclude:
+    - "*/node_modules/*"
+    - "*/venv/*"
+    - "*/.venv/*"
+    - "*/dist/*"
+    - "*/build/*"
+    - "*/__pycache__/*"
+    - "*/test_*.py"
+    - "*_test.go"
+    - "*.test.js"
+
+# Severity settings
+severity:
+  error:
+    - security
+  warning:
+    - best-practice
+    - maintainability

@@ -1,0 +1,34 @@
+# Trivy Configuration
+# https://aquasecurity.github.io/trivy/
+
+# Scan settings
+scan:
+  security-checks:
+    - vuln
+    - config
+    - secret
+  
+  severity:
+    - CRITICAL
+    - HIGH
+    - MEDIUM
+  
+  ignore-unfixed: false
+
+# Vulnerability settings
+vulnerability:
+  type:
+    - os
+    - library
+
+# Output settings
+format: json
+output: trivy-results.json
+
+# Cache settings
+cache:
+  dir: /tmp/trivy-cache
+  ttl: 24h
+
+# Ignore specific CVEs (use sparingly)
+# ignorefile: .trivyignore

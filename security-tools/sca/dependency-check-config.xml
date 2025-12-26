@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- OWASP Dependency-Check Configuration -->
+<dependencyCheck xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+    
+    <!-- Project settings -->
+    <project>devsecops-pipeline</project>
+    
+    <!-- Scan settings -->
+    <scan>
+        <path>.</path>
+    </scan>
+    
+    <!-- Suppression file (optional) -->
+    <!-- <suppressionFile>dependency-check-suppressions.xml</suppressionFile> -->
+    
+    <!-- Analyzers -->
+    <analyzers>
+        <experimental>true</experimental>
+        <retired>true</retired>
+        <python>true</python>
+        <nodejs>true</nodejs>
+        <ruby>true</ruby>
+        <golang>true</golang>
+    </analyzers>
+    
+    <!-- Output formats -->
+    <formats>
+        <format>HTML</format>
+        <format>JSON</format>
+        <format>XML</format>
+        <format>CSV</format>
+    </formats>
+    
+    <!-- Fail build settings -->
+    <failBuildOnCVSS>7.0</failBuildOnCVSS>
+    
+    <!-- NVD API settings -->
+    <!-- <nvdApiKey>${env.NVD_API_KEY}</nvdApiKey> -->
+    <nvdApiDelay>4000</nvdApiDelay>
+    
+</dependencyCheck>
